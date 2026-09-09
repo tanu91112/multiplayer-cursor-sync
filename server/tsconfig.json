@@ -4,7 +4,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "outDir": "./dist",
-    "rootDir": ".", // Changed from "./src" to "."
+
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -15,7 +15,7 @@
   },
   "include": [
     "src/**/*",
-    "../shared/**/*" // Added to include shared folder
+    "../shared/**/*"
   ],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }
