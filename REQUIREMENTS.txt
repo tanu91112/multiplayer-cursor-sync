@@ -1,0 +1,38 @@
+# ============================================
+# REAL-TIME MULTIPLAYER CURSOR/STATE SYNC
+# Installation Requirements
+# ============================================
+
+## 📦 SYSTEM REQUIREMENTS
+
+### Operating System
+- Windows 10/11 (64-bit)
+- macOS 10.15+ 
+- Linux (Ubuntu 20.04+)
+
+### Node.js
+- Version: v18.0.0 or higher
+- Latest LTS: v20.11.0
+- Download: https://nodejs.org/
+
+### Browser
+- Chrome 90+
+- Firefox 88+
+- Edge 90+
+- Safari 14+
+
+### Package Manager
+- npm (comes with Node.js)
+- OR yarn (optional)
+
+---
+
+## 📦 PROJECT DEPENDENCIES
+
+### Root Dependencies
+```json
+{
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

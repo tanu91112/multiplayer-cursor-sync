@@ -1,0 +1,10 @@
+{
+  "name": "multiplayer-sync",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd server && node dist/server.js",
+    "client": "cd client && npm run preview"
+  }
+}
