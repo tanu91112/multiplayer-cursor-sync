@@ -1,91 +1,18 @@
-# 🎯 Real-Time Multiplayer Cursor/State Sync
+# 🏗️ Architecture — Real-Time Multiplayer Cursor/State Sync
 
-[![Live Demo](https://img.shields.io/badge/demo-live-brightgreen)](https://multiplayer-cursor-sync.vercel.app/)
-[![GitHub](https://img.shields.io/badge/github-repo-blue)](https://github.com/tanu91112/multiplayer-cursor-sync)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)](https://www.typescriptlang.org/)
-[![React](https://img.shields.io/badge/React-18-61DAFB)](https://react.dev/)
-[![Node.js](https://img.shields.io/badge/Node.js-20+-green)](https://nodejs.org/)
-
-A production-quality, real-time multiplayer cursor tracking system built from scratch using **raw WebSockets**, **TypeScript**, and **React** — no Socket.IO, no Yjs, no Liveblocks, no state-sync libraries.
-
-Built for the **FlamAI Frontend R&D Assignment**.
+This document describes the design, data flow, protocol, and scaling considerations for the real-time multiplayer sync system.
 
 ---
 
-## 🌐 Live Demo
+## 📐 System Overview
 
-| Service | URL |
-|---------|-----|
-| **Client (Vercel)** | [https://multiplayer-cursor-sync.vercel.app/](https://multiplayer-cursor-sync.vercel.app/) |
-| **Server (Render)** | [https://multiplayer-cursor-sync.onrender.com](https://multiplayer-cursor-sync.onrender.com) |
-| **GitHub Repo** | [https://github.com/tanu91112/multiplayer-cursor-sync](https://github.com/tanu91112/multiplayer-cursor-sync) |
+The system consists of three main components:
 
-> ⚠️ **Note:** The Render free tier spins down after 15 minutes of inactivity. The first connection may take 30–60 seconds to wake the server. Subsequent connections are instant.
-
----
-
-## ✨ Features
-
-- 🖱️ **Real-time cursor tracking** across multiple clients
-- ✨ **Smooth interpolation** — 50ms buffer at 60fps (no teleporting)
-- 💥 **Emoji reactions** — tap anywhere on canvas to emit an emoji burst
-- 👥 **Presence list** — live count of connected users
-- 🔄 **Auto-reconnect** with exponential backoff
-- 🧹 **Automatic cleanup** of disconnected clients (10s heartbeat timeout)
-- 🛡️ **Type-safe protocol** — every message validated with TypeScript guards
-- ⚡ **Throttled cursor updates** — 30Hz (not raw 60–120Hz mousemove)
-- 📱 **Responsive** — works on desktop, tablet, and mobile
-- 🎨 **Emoji reactions visible to all participants**
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-- Node.js **v18+**
-- npm **v9+**
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/tanu91112/multiplayer-cursor-sync.git
-cd multiplayer-cursor-sync
-```
-
-### 2. Install dependencies
-
-```bash
-# Root
-npm install
-
-# Server
-cd server && npm install && cd ..
-
-# Client
-cd client && npm install && cd ..
-```
-
-### 3. Run in development
-
-**Terminal 1 — Server:**
-```bash
-cd server
-npm run dev
-```
-
-**Terminal 2 — Client:**
-```bash
-cd client
-npm run dev
-```
-
-### 4. Open multiple clients
-
-Open [http://localhost:5173](http://localhost:5173) in **3–5 browser tabs**, join with different names, and move your mouse to see real-time sync.
-
----
-
-## 🏗️ Architecture
+| Component | Role |
+|-----------|------|
+| **Server** | Node.js + `ws` — manages rooms, presence, message validation, and broadcasting |
+| **Client** | React + TypeScript — renders UI, handles input, manages WebSocket connection |
+| **Shared Protocol** | TypeScript message types + runtime validation used by both sides |
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -108,53 +35,104 @@ Open [http://localhost:5173](http://localhost:5173) in **3–5 browser tabs**, j
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Data Flow
+---
+
+## 🔄 Message Flow
+
+### 1. Join Flow
 
 ```
-User moves mouse
-       ↓
-Client creates CursorMessage (throttled to 30Hz)
-       ↓
-WebSocket sends to server
-       ↓
-Server validates message with isValidMessage()
-       ↓
-Server broadcasts to all OTHER clients in room
-       ↓
-Other clients receive cursor update
-       ↓
-Interpolation engine buffers + smooths at 60fps
-       ↓
-Canvas renders interpolated position
+Client                          Server                         Other Clients
+   │                              │                                │
+   ├──── JOIN (username) ────────►│                                │
+   │                              │                                │
+   │                              ├───── PRESENCE (clients) ─────►│
+   │                              │                                │
+   │                              ├──────── JOIN (user) ─────────►│
+   │                              │                                │
+   │◄─── PRESENCE (clients) ──────┤                                │
+   │                              │                                │
+```
+
+**Approach:** Full state snapshot — new clients receive the entire list of current participants via a `presence` message immediately after joining.
+
+### 2. Cursor Flow (Throttled at 30Hz)
+
+```
+Client                          Server                         Other Clients
+   │                              │                                │
+   │ (33ms throttle)             │                                │
+   │                              │                                │
+   ├──── CURSOR (x,y) ──────────►│                                │
+   │                              │                                │
+   │                              ├──────── CURSOR (x,y) ────────►│
+   │                              │                                │
+   │          [Interpolation Engine on each client]                │
+   │                              │                                │
+```
+
+### 3. Reaction Flow
+
+```
+Client                          Server                         Other Clients
+   │                              │                                │
+   ├──── REACTION (emoji,x,y) ──►│                                │
+   │                              │                                │
+   │                              ├──── REACTION (emoji,x,y) ────►│
+   │                              │                                │
+   │          [Emoji animation on all clients]                    │
+```
+
+### 4. Disconnect Flow
+
+```
+Client                          Server                         Other Clients
+   │                              │                                │
+   │ (Browser closes tab)        │                                │
+   │                              │                                │
+   │◄─────── WebSocket close ─────►                                │
+   │                              │                                │
+   │                              ├─────── LEAVE (user) ─────────►│
+   │                              │                                │
+   │                          [10s timeout for heartbeat]          │
+   │                              │                                │
+   │                          [Cleanup zombie clients]             │
 ```
 
 ---
 
 ## 📡 Protocol Design
 
+### Why This Shape?
+
+- **Minimal message types** — only 7 types cover all sync needs
+- **Base fields on every message** — `type`, `clientId`, `timestamp`
+- **TypeScript discriminated unions** — enables exhaustive `switch` checks
+- **Runtime validation** — `isValidMessage()` prevents malformed payloads
+
 ### Message Types
 
-| Type | Direction | Payload | Description |
-|------|-----------|---------|-------------|
-| `join` | Client → Server | `{ username, color }` | Join a room |
-| `cursor` | Client ↔ Server | `{ x, y }` | Cursor position update |
-| `reaction` | Client → Server | `{ emoji, x, y }` | Emoji reaction |
-| `presence` | Server → Client | `{ clients: ClientInfo[] }` | List of online users |
-| `leave` | Client → Server | `{}` | Leave room |
-| `heartbeat` | Client ↔ Server | `{}` | Keep connection alive |
-| `error` | Server → Client | `{ message }` | Error notification |
+| Type | Direction | Payload | Purpose |
+|------|-----------|---------|---------|
+| `join` | Client → Server | `{ username, color }` | Announce presence |
+| `cursor` | Client ↔ Server | `{ x, y }` | Continuous cursor position |
+| `reaction` | Client → Server | `{ emoji, x, y }` | One-shot emoji burst |
+| `presence` | Server → Client | `{ clients[] }` | Full snapshot of room |
+| `leave` | Client → Server | `{}` | Voluntary disconnect |
+| `heartbeat` | Client ↔ Server | `{}` | Keep-alive signal |
+| `error` | Server → Client | `{ message }` | Protocol violation |
 
 ### Message Validation
 
-Every message is validated using a **TypeScript type guard** before processing:
-
 ```typescript
 export function isValidMessage(data: any): data is Message {
+  // 1. Guard base fields
   if (!data || typeof data !== 'object') return false;
   if (!data.type || typeof data.type !== 'string') return false;
   if (!data.clientId || typeof data.clientId !== 'string') return false;
   if (typeof data.timestamp !== 'number') return false;
 
+  // 2. Guard type-specific payloads
   switch (data.type) {
     case 'join':
       return typeof data.username === 'string' && typeof data.color === 'string';
@@ -164,183 +142,303 @@ export function isValidMessage(data: any): data is Message {
       return typeof data.emoji === 'string' &&
              typeof data.x === 'number' &&
              typeof data.y === 'number';
-    // ...
+    case 'presence':
+      return Array.isArray(data.clients);
+    case 'leave':
+    case 'heartbeat':
+      return true;
+    case 'error':
+      return typeof data.message === 'string';
+    default:
+      return false;
   }
 }
 ```
 
-Malformed messages are **rejected** — never silently accepted, never crash the client.
+**Malformed messages are rejected server-side with an `error` response — never silently accepted, never crash the client.**
 
-### Throttling Strategy
+### Throttling / Batching
 
-| Action | Frequency | Rationale |
-|--------|-----------|-----------|
-| **Cursor updates** | 30Hz (33ms) | Balances smoothness with bandwidth (mousemove is 60–120Hz raw) |
-| **Heartbeat** | 5s | Keeps connections alive through proxies/load balancers |
-| **Client timeout** | 10s | Removes stale clients (no zombie cursors) |
+| Event | Raw Rate | Throttled To | Method |
+|-------|----------|--------------|--------|
+| `mousemove` | 60–120 Hz | **30 Hz** | Client-side `setTimeout` gate (33ms) |
+| Heartbeat | — | **0.2 Hz** | `setInterval` every 5s |
+| Cleanup scan | — | **0.1 Hz** | `setInterval` every 10s |
 
----
+**Why 30Hz?** Visual smoothness for cursor tracking requires ~24–30 fps minimum. Sending at raw mousemove rate would generate 2–4× more network traffic without any perceived smoothness improvement — especially since the receiving client interpolates anyway.
 
-## 🎯 Interpolation Strategy
+### Server vs Client State
 
-**Linear Interpolation with 50ms Buffer**
+| State | Lives On | Reason |
+|-------|----------|--------|
+| Room membership | Server | Authoritative source of who's connected |
+| Client colors/usernames | Server | Assigned on join, broadcast to all |
+| Cursor positions | **Client only** (relayed) | High-frequency, no server logic needed |
+| Reaction events | **Client only** (relayed) | Fire-and-forget, no persistence |
+| Interpolation history | Client only | Rendering concern, not sync concern |
 
-```
-Buffer Delay: 50ms (adds 50ms latency for smoothness)
-Tick Rate:    60fps
-Algorithm:
-  1. Buffer incoming positions with timestamps
-  2. Find two positions bracketing (current time − 50ms)
-  3. Linearly interpolate between them
-  4. Render the interpolated position every frame
-```
-
-### Tradeoffs
-
-| ✅ Advantages | ❌ Disadvantages |
-|---------------|------------------|
-| Smooth movement — no teleporting | ~50ms added latency |
-| Handles network jitter gracefully | Requires buffering memory |
-| Predictable frame timing | Slightly delayed compared to raw updates |
-
-**Why 50ms?** Empirically, 50ms is enough to absorb typical network jitter (10–40ms variance) while keeping perceived latency imperceptible during cursor tracking.
+**Key insight:** The server holds *presence* state, but cursor/reaction positions are **purely relayed** — the server doesn't need to store them.
 
 ---
 
-## 🔄 Failure Handling
+## 🎯 Client-Side Reconciliation & Interpolation
 
-### Disconnect Detection
+### Interpolation Strategy
 
-- WebSocket `close` and `error` events trigger immediate cleanup
-- **Heartbeat timeout** (10s without heartbeat) removes stale clients
-- Cursor is removed from **all** connected clients
+**Linear interpolation with a 50ms buffer.**
 
-### Reconnection
+```typescript
+getInterpolatedPosition(clientId: string, now: number): { x, y } | null {
+  const history = this.history.get(clientId);
+  if (!history || history.positions.length < 2) return null;
 
-- **Exponential backoff:** 1s → 1.5s → 2.25s → 3.37s → 5.06s
-- Max **5 attempts**
-- Client automatically re-joins the room on success
+  const targetTime = now - this.config.bufferDelay; // 50ms ago
 
-### Out-of-Order Messages
+  // Binary search for bracketing positions
+  const [p1, p2] = findBracket(history.positions, targetTime);
 
-- Every message includes a `timestamp` field
-- Client discards stale cursor updates (older than last applied)
-- Interpolation uses timestamps to maintain correct ordering
-
-### Malformed Messages
-
-- `isValidMessage()` rejects invalid payloads
-- Server sends an `error` message back to the offending client
-- No crash — the room continues functioning normally
-
----
-
-## 📁 Project Structure
-
-```
-multiplayer-cursor-sync/
-├── server/
-│   ├── src/
-│   │   ├── server.ts              # WebSocket server + room manager
-│   │   ├── room.ts                # Room class + client lifecycle
-│   │   └── shared/
-│   │       └── protocol.ts        # Shared message types (server copy)
-│   ├── package.json
-│   └── tsconfig.json
-├── client/
-│   ├── src/
-│   │   ├── App.tsx                # Main React component
-│   │   ├── App.css                # Global styling
-│   │   ├── connection.ts          # WebSocket client
-│   │   ├── interpolation.ts       # Smooth cursor engine
-│   │   └── main.tsx               # React entry point
-│   ├── index.html
-│   ├── package.json
-│   ├── tsconfig.json
-│   └── vite.config.ts
-├── shared/
-│   └── protocol.ts                # Shared message types (canonical)
-├── README.md
-├── ARCHITECTURE.md
-├── REQUIREMENTS.txt
-└── .gitignore
+  // Linear interpolate
+  const t = (targetTime - p1.timestamp) / (p2.timestamp - p1.timestamp);
+  return {
+    x: p1.x + (p2.x - p1.x) * t,
+    y: p1.y + (p2.y - p1.y) * t,
+  };
+}
 ```
 
----
+### Why 50ms Buffer?
 
-## 🛠️ Tech Stack
+| Buffer Delay | Smoothness | Latency | Verdict |
+|--------------|------------|---------|---------|
+| 0ms | Teleports on jitter | Best | ❌ Unusable |
+| 25ms | Some jitter visible | Good | ⚠️ Borderline |
+| **50ms** | **Perfectly smooth** | **Imperceptible** | ✅ **Chosen** |
+| 100ms | Perfectly smooth | Noticeable lag | ❌ Feels sluggish |
 
-| Layer | Technology |
-|-------|------------|
-| **Frontend** | React 18 + TypeScript + Vite |
-| **Backend** | Node.js + TypeScript + `ws` |
-| **Transport** | Raw WebSocket API |
-| **Rendering** | HTML5 Canvas |
-| **Styling** | Vanilla CSS |
-| **Deployment** | Vercel (client) + Render (server) |
+**Tradeoff:** 50ms added latency for perfectly smooth movement. For cursor tracking (not gaming), this is invisible to the user.
 
-**No Socket.IO. No Yjs. No Liveblocks. No state-sync frameworks.**
+### Memory Bounds
 
----
-
-## 🚫 Known Limitations
-
-| Limitation | Impact |
-|------------|--------|
-| No persistence across server restarts | In-memory state only |
-| No horizontal scaling | Single server instance |
-| No authentication | Anyone can join any room |
-| No message history | No replay for late joiners |
-| Render free tier | 15-min spin-down after inactivity |
-| No rate limiting | Potential for abuse |
+- Each client keeps a **rolling 50-position window** per remote client
+- Positions older than 2 seconds are discarded
+- No unbounded growth — memory per client is O(50) ≈ ~800 bytes
 
 ---
 
-## 🔭 Scaling Strategy (Bonus)
+## 🖥️ Server Design
 
-To scale beyond a single process:
+### Room Lifecycle
 
-1. **Horizontal scaling** — Run multiple Node.js instances behind a load balancer
-2. **Redis Pub/Sub** — Broadcast messages across server instances
-3. **Sticky sessions** — Route a client to the same server for its room
-4. **Room sharding** — Assign rooms to specific servers by hash
-5. **Edge WebSockets** — Use Cloudflare Durable Objects for global low-latency
+```
+createRoom(roomId)
+    ↓
+[clients join over time]
+    ↓
+[clients leave / disconnect]
+    ↓
+clientCount === 0
+    ↓
+destroyRoom(roomId) + clearInterval(cleanupTimer)
+```
 
-See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the full discussion.
+### Broadcast Fan-out
+
+```typescript
+function broadcastToRoom(
+  roomId: string,
+  message: Message,
+  excludeClientId?: string
+): void {
+  const serialized = JSON.stringify(message);
+  clientSockets.forEach((ws, clientId) => {
+    if (clientId !== excludeClientId && clientRooms.get(clientId) === roomId) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(serialized);
+      }
+    }
+  });
+}
+```
+
+**Correctness properties:**
+- ✅ **No echo to sender** — `excludeClientId` prevents self-rebroadcast
+- ✅ **No cross-room leakage** — `clientRooms.get(clientId) === roomId` filter
+- ✅ **O(n) fan-out** — not O(n²), each message serialized once
+
+### Heartbeat / Disconnect Handling
+
+| Signal | When | Action |
+|--------|------|--------|
+| WebSocket `close` | Clean disconnect | Immediate client removal |
+| WebSocket `error` | Network failure | Same as close |
+| Heartbeat timeout | Zombie connection | Remove after 10s of silence |
+
+The cleanup timer runs every 10s and removes any client whose `lastSeen` is older than 10s.
 
 ---
 
-## ⏱️ Time Spent
+## 🏛️ Code Architecture
 
-| Phase | Hours |
-|-------|-------|
-| Project setup & protocol design | 2 |
-| Server implementation | 3 |
-| Client implementation | 4 |
-| Interpolation engine | 2 |
-| Deployment & debugging | 3 |
-| Documentation | 2 |
-| **Total** | **~16 hours** |
+### Separation of Concerns
 
----
+| Layer | File | Responsibility |
+|-------|------|----------------|
+| **Transport** | `connection.ts` (client), `server.ts` (server) | Raw WebSocket plumbing |
+| **Protocol** | `shared/protocol.ts` | Message types, validation |
+| **Rendering** | `App.tsx`, `interpolation.ts` | Canvas drawing, smoothing |
 
-## 🤖 AI Tools Disclosure
+### Extensibility
 
-AI assistance was used for:
-- Initial project scaffolding and boilerplate
-- Debugging deployment issues (Render `rootDir` / Vercel build scripts)
-- Documentation formatting
+**Adding a new action type requires zero changes to transport code.**
 
-**All architectural decisions, protocol design, and interpolation logic were reviewed and are fully understood by the author.**
+Example — adding a `highlight` action:
 
----
+1. Add `HighlightMessage` interface to `shared/protocol.ts`
+2. Add `'highlight'` to `MessageType` union
+3. Add validation case in `isValidMessage()`
+4. Add handler in client's `App.tsx` `onMessage` switch
 
-## 📄 License
-
-MIT © 2026 Tanu Chandravanshi
+**No changes needed** in `connection.ts`, `server.ts`, or `room.ts` — the transport and relay logic are message-type agnostic.
 
 ---
 
-## 🙏 Acknowledgments
+## 🚀 Scaling Considerations
 
-Built for the **FlamAI Frontend R&D Assignment** — Real-Time Multiplayer Cursor/State Sync.
+### Current Architecture
+
+```
+┌─────────────────────────────┐
+│      Single Server          │
+│  ┌─────────────────────────┐│
+│  │   Room 1 (10 clients)  ││
+│  │   Room 2 (10 clients)  ││
+│  │   Room 3 (10 clients)  ││
+│  └─────────────────────────┘│
+└─────────────────────────────┘
+```
+
+**Limits:**
+- Memory grows with concurrent clients
+- CPU bound by JSON serialization + fan-out
+- Single point of failure
+
+### Horizontal Scaling
+
+```
+                 ┌─────────────────┐
+                 │   Load Balancer  │
+                 └────────┬────────┘
+                          │
+            ┌─────────────┼─────────────┐
+            │             │             │
+      ┌─────▼─────┐ ┌─────▼─────┐ ┌─────▼─────┐
+      │ Server 1  │ │ Server 2  │ │ Server 3  │
+      │ (Room A)  │ │ (Room B)  │ │ (Room C)  │
+      └─────┬─────┘ └─────┬─────┘ └─────┬─────┘
+            │             │             │
+            └─────────────┼─────────────┘
+                          │
+                   ┌──────▼──────┐
+                   │ Redis PubSub │
+                   └─────────────┘
+```
+
+**Required changes:**
+
+1. **Sticky sessions** — Load balancer routes each client to the same server for its room (via consistent hash of `roomId`)
+2. **Redis Pub/Sub** — When a message arrives on Server 1 for Room A, it publishes to a Redis channel; all servers subscribed relay to their local members of Room A
+3. **Shared presence state** — Room membership stored in Redis (`HSET room:A clients ...`) instead of in-memory Maps
+4. **Health checks** — Load balancer monitors server health; failed servers are removed
+
+### Edge WebSockets (Advanced)
+
+For global low latency:
+- Use **Cloudflare Durable Objects** — each room becomes a durable object
+- Use **Fly.io regions** — deploy close to users
+- Use **Ably / Pusher** — but the assignment forbids this for the sync work itself
+
+### Load Estimates
+
+| Metric | Per Client | At 1000 Clients |
+|--------|-----------|-----------------|
+| Cursor messages/sec | 30 | 30,000 |
+| Average message size | ~80 bytes | — |
+| Bandwidth per client | 2.4 KB/s | 2.4 MB/s |
+| Memory per client | ~100 KB | 100 MB |
+
+**Bottleneck at scale:** JSON serialization + fan-out CPU. Mitigations: binary protocol (msgpack), WebSocket compression, sharded rooms.
+
+---
+
+## 🔒 Security Considerations
+
+| Concern | Current State | Improvement |
+|---------|---------------|-------------|
+| Authentication | None | JWT in `join` message |
+| Rate limiting | None | Token bucket per IP |
+| Input validation | TypeScript guards | Add schema validation (zod) |
+| Room privacy | Public | Optional room password |
+| DDoS | None | Cloudflare proxy |
+| XSS via emoji | Constrained to fixed list | ✅ Already safe |
+| XSS via username | Not sanitized | Sanitize on render |
+
+---
+
+## 📊 Performance Metrics
+
+| Metric | Value |
+|--------|-------|
+| Cursor update rate | 30 Hz |
+| Interpolation tick rate | 60 fps |
+| Buffer delay | 50 ms |
+| Heartbeat interval | 5 s |
+| Client timeout | 10 s |
+| Typical message latency | 20–50 ms |
+| Tested concurrent clients | 10 |
+| Memory per client | ~100 KB |
+
+---
+
+## 🛠️ Dependencies
+
+### Server
+- `ws` — WebSocket implementation (raw, no wrappers)
+- No other runtime dependencies
+
+### Client
+- `react`, `react-dom` — UI
+- `vite`, `typescript` — dev tooling
+- No runtime sync libraries
+
+### Explicitly NOT Used
+- ❌ Socket.IO
+- ❌ Yjs
+- ❌ Liveblocks
+- ❌ PartyKit
+- ❌ Ably / Pusher
+- ❌ Any state-sync framework
+
+---
+
+## 📝 Design Decisions Summary
+
+| Decision | Alternative | Why We Chose This |
+|----------|-------------|-------------------|
+| Raw WebSocket | Socket.IO | Assignment requirement; understanding fundamentals |
+| JSON messages | Binary (msgpack) | Simplicity + debuggability |
+| 50ms interpolation buffer | Extrapolation | Simpler, no overshoot artifacts |
+| Server relays, not stores | Server-authoritative state | Lower memory, simpler logic |
+| 30Hz throttle | Raw 60–120Hz | 4× bandwidth savings, no visible diff |
+| Heartbeat every 5s | TCP keepalive | Works through proxies reliably |
+| Single process | Microservices | Assignment scope — correctness > distribution |
+
+---
+
+## 🔗 Related Documents
+
+- [README.md](./README.md) — Setup, features, protocol overview
+- [REQUIREMENTS.txt](./REQUIREMENTS.txt) — Dependencies and system requirements
+
+---
+
+**Built for the FlamAI Frontend R&D Assignment.**
