@@ -3,7 +3,8 @@ import {
   CursorMessage, 
   ReactionMessage, 
   JoinMessage,
-  isValidMessage 
+  isValidMessage,
+  THROTTLE_CONFIG
 } from '../../shared/protocol';
 
 type MessageHandler = (message: Message) => void;
@@ -15,11 +16,18 @@ export class Connection {
   private username: string = '';
   private color: string = '';
   private messageHandlers: MessageHandler[] = [];
-  private heartbeatInterval: NodeJS.Timeout | null = null;
+  private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+  private isConnecting: boolean = false;
 
   connect(roomId: string, username: string): Promise<void> {
     return new Promise((resolve, reject) => {
-     
+      if (this.isConnecting) {
+        reject(new Error('Already connecting'));
+        return;
+      }
+
+      this.isConnecting = true;
+      this.roomId = roomId;
       this.username = username || `User_${Math.random().toString(36).slice(2, 6)}`;
       this.color = this.generateColor();
 
@@ -28,7 +36,8 @@ export class Connection {
 
       this.ws.onopen = () => {
         console.log('✅ WebSocket connected');
-        
+        this.isConnecting = false;
+
         const joinMessage: JoinMessage = {
           type: 'join',
           clientId: roomId,
@@ -54,11 +63,13 @@ export class Connection {
 
       this.ws.onerror = (error) => {
         console.error('WebSocket error:', error);
+        this.isConnecting = false;
         reject(error);
       };
 
       this.ws.onclose = () => {
         console.log('WebSocket closed');
+        this.isConnecting = false;
         this.stopHeartbeat();
       };
     });
@@ -80,7 +91,7 @@ export class Connection {
         clientId: 'client',
         timestamp: Date.now(),
       });
-    }, 5000);
+    }, THROTTLE_CONFIG.heartbeatIntervalMs);
   }
 
   private stopHeartbeat(): void {
