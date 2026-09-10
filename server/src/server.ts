@@ -5,7 +5,10 @@ import { Room } from './room.js';
 import { 
   Message, 
   JoinMessage, 
-  isValidMessage 
+  CursorMessage, 
+  ReactionMessage,
+  isValidMessage,
+  THROTTLE_CONFIG
 } from './shared/protocol.js';
 
 const PORT = process.env.PORT || 3001;
