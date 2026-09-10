@@ -1,4 +1,4 @@
-import { ClientInfo } from '../../shared/protocol.js';
+import { ... } from './shared/protocol.js';
 
 export class Room {
   private clients: Map<string, ClientInfo> = new Map();
