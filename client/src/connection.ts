@@ -19,7 +19,7 @@ export class Connection {
 
   connect(roomId: string, username: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.roomId = roomId;
+     
       this.username = username || `User_${Math.random().toString(36).slice(2, 6)}`;
       this.color = this.generateColor();
 
