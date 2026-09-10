@@ -1,14 +1,14 @@
-import { ... } from './shared/protocol.js';
+import { ClientInfo, THROTTLE_CONFIG, Message } from './shared/protocol.js';
 
 export class Room {
   private clients: Map<string, ClientInfo> = new Map();
+  private messageHistory: Message[] = [];
   private cleanupInterval: NodeJS.Timeout;
 
   constructor(public roomId: string) {
-    // Clean up stale clients every 10 seconds
     this.cleanupInterval = setInterval(() => {
       this.cleanupStaleClients();
-    }, 10000);
+    }, THROTTLE_CONFIG.clientTimeoutMs);
   }
 
   addClient(clientId: string, username: string, color: string): ClientInfo {
@@ -43,24 +43,29 @@ export class Room {
     }
   }
 
+  addToHistory(message: Message): void {
+    this.messageHistory.push(message);
+    if (this.messageHistory.length > THROTTLE_CONFIG.maxHistorySize) {
+      this.messageHistory.shift();
+    }
+  }
+
   private cleanupStaleClients(): void {
     const now = Date.now();
     const staleIds: string[] = [];
 
     this.clients.forEach((client, id) => {
-      if (now - client.lastSeen > 10000) {
+      if (now - client.lastSeen > THROTTLE_CONFIG.clientTimeoutMs) {
         staleIds.push(id);
       }
     });
 
-    staleIds.forEach(id => {
-      console.log(`🧹 Removing stale client: ${id}`);
-      this.clients.delete(id);
-    });
+    staleIds.forEach(id => this.clients.delete(id));
   }
 
   destroy(): void {
     clearInterval(this.cleanupInterval);
     this.clients.clear();
+    this.messageHistory = [];
   }
 }
