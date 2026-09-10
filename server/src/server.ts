@@ -6,7 +6,7 @@ import {
   Message, 
   JoinMessage, 
   isValidMessage 
-} from '../../shared/protocol.js';
+} from './shared/protocol.js';
 
 const PORT = process.env.PORT || 3001;
 const server = createServer();
