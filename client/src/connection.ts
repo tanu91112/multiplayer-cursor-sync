@@ -23,7 +23,7 @@ export class Connection {
       this.username = username || `User_${Math.random().toString(36).slice(2, 6)}`;
       this.color = this.generateColor();
 
-      const wsUrl = `ws://localhost:3001`;
+      const wsUrl = `wss://multiplayer-cursor-sync.onrender.com`;
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
